@@ -1,0 +1,152 @@
+0-ODM
+1-Install node.js/mongoose driver :  npm install mongoose  
+2-connect on DB  using compass and atls
+3-check DB connection mongoose.connect
+4-create  user model and mongoose.models
+5-validator
+6- new save  / create({}) vs create([{}]) / insertMany
+7-select: find , finOne , finById  setter getter and viruals   //.select  .sort  .skip  .limit
+8-update: updateOne() , updateMany , findOneAndUpdate , finByIdAndUpdate , findOneAndReplace
+9-delete: deleteOne  deleteMany findOneAndDelete  findByIdAndDelete findOneAndRemove
+10-create product collection
+11-relation 
+	populate 
+	lookup
+==============================5-Create Collection with options
+| Option                | Type                                      | Description                                                |
+| --------------------- | ----------------------------------------- | ---------------------------------------------------------- |
+| `collection`          | `String`                                  | Specify the name of the collection                         |
+| `timestamps`          | `Boolean` or `{ createdAt, updatedAt }`   | Automatically adds `createdAt` and `updatedAt` fields      |
+| `versionKey`          | `Boolean` or `String`                     | Adds a `__v` field to track versioning (default `true`) 
+             									and  can change key name versionKey :"version"   |
+|optimisticConcurrency  | true                                      | to allow key version update only work with  the save
+| `strict`              | `Boolean` or `"throw"`                    | Only values in the schema are saved (default `true`)       |
+| `strictQuery`         | `Boolean`                                 | Controls query casting (default `false`)                   |
+| `capped`              | `Boolean` or `{ size, max, autoIndexId }` | Creates a capped collection                                |
+| `autoIndex`           | `Boolean`                                 | Automatically builds indexes on startup  if false then  UserModel.syncIndexes()|               
+| `id`                  | `Boolean`                                 | Adds virtual `id` getter of `_id.toString()` not must apply toJson and toObject|               
+| `_id`                 | `Boolean`                                 | If `false`, disables the automatic `_id` field             |
+| `minimize`            | `Boolean`                                 | Removes empty objects from output (default `true`)         |
+| `toJSON` / `toObject` | `Object`                                  | Custom behavior for `.toJSON()` / `.toObject()`            |
+| `validateBeforeSave`  | `Boolean`                                 | Whether to run validators before `save()` (default `true`) |
+
+==============================5- model parts mongoose
+create user model 
+	Data-types:https://mongoosejs.com/docs/schematypes.html 
+		String
+        	Number
+		Date
+		Buffer
+		Boolean
+		Mixed
+		ObjectId
+		Array
+		Decimal128
+		Map
+		Schema
+		UUID
+		BigInt
+	Schema Options
+		Option           	Description
+		collection	Explicitly specify the collection name
+		timestamps	Automatically adds createdAt and updatedAt
+		versionKey	Disable __v version key (false)
+		strict	              Controls enforcement of schema structure
+		autoIndex	Automatically creates indexes (default: true)
+
+	Features for Attributes
+		[required , default , unique , trim , min , max , match]
+	
+	validation 
+		Built-in Validators:[type , required , default , unique , trim , min , max , match  , maxlength  ,minlength]
+		Custom Validators:{validate:{validator:function() , or asyncfunction(){}} , message}
+		skip validate
+			    { runValidators: true } // Enforce validation on update options
+			     validateBeforeSave: false  //create save options 
+
+| Validator   | Type         | Example                                  |
+| ----------- | ------------ | ---------------------------------------- |
+| `required`  | Boolean/Func | `required: true`                         |
+| `type`      | Any type     | `type: Number`                           |
+| `min`       | Number/Date  | `min: 5`                                 |
+| `max`       | Number/Date  | `max: 99`                                |
+| `minLength` | String/Array | `minLength: 2`                           |
+| `maxLength` | String/Array | `maxLength: 10`                          |
+| `match`     | RegExp       | `match: /^[A-Za-z]+$/`   later in course |
+| `enum`      | Array        | `enum: ['yes', 'no']`                    |
+| `validate`  | Function     | `validate: function(val) { return ... }` |
+| `unique`    | Index Option | `unique: true` (not a validator)         |
+
+==================================================================CRUD=================================================================================
+
+========================== CREATE (docs[] , options)
+| Option                   | Type            | Default     | Description                                                                          |
+| ------------------------ | --------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `session`                | `ClientSession` | `undefined` | Runs the operation in a transaction.                                                 |
+| `timestamps`             | `Boolean`       | `undefined` | If `false`, disables automatic timestamps (if your schema has them).                 |
+| `ordered`                | `Boolean`       | `true`      | For multiple docs — whether to stop on the first error or continue inserting others. 
+| validateBeforeSave       
+
+========================== INSERTMANY
+| Option                   | Type                      | Default     | Description                                                                                                                                              
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ordered`                | Boolean                   | `true`      | If `true`, MongoDB will **stop** inserting when the first error occurs. If `false`, 					                                 			       it will try to insert **all** documents and skip the ones that fail. |
+| `timestamps`             |`Boolean`                  | `undefined` | If `false`, disables automatic timestamps (if your schema has them).                 |
+| `rawResult`              | Boolean                   | `false`     | If `true`, Mongoose returns the full **MongoDB response** instead of just the inserted documents.|
+| `lean`                   | Boolean                   | `false`     | skips hydrating the documents. This means Mongoose will not cast, validate, or apply defaults to any of the documents 																						passed to| 
+| `populate`               | Object \| Array \| String | `undefined` | Automatically populate specified fields after insert.                                                                                                    |
+| `session`                | ClientSession             | `undefined` | Used to execute insert inside a MongoDB **transaction**.                                                                                                 |
+| `limit`                  | Number                    | `undefined` | Limits how many docs to insert (rarely used). mongosse default= null  but MongoDB batch siz 100,000 docs OR 48MB                                                                                                          |	`
+| `throwOnValidationError` | Boolean                   | `false`     | If `true`, throws a validation error if any document fails schema validation (only 								       					applies if docs were created via Mongoose model instances). note that ordered=false is required|
+
+
+=========================================================mongo session in replica mode only
+
+const session = await mongoose.startSession();
+session.startTransaction();
+
+try {
+  await UserModel.insertMany(users, { session });
+  await session.commitTransaction();
+  console.log("Transaction committed!");
+} catch (err) {
+  await session.abortTransaction();
+  console.error("Transaction aborted:", err.message);
+} finally {
+  session.endSession();
+}
+====================================================UPDATE
+| Option                | Type                    | Description                                                                                    |
+| --------------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `new`                 | `Boolean`               | If `true`, returns the updated document instead of the original (used with `findOneAndUpdate`) |
+| `upsert`              | `Boolean`               | Creates a new document if no match is found                                                    |
+| `runValidators`       | `Boolean`               | Runs schema validation on the update                                                           |
+| `timestamps`          | `Boolean`               | Updates `createdAt` and `updatedAt` fields (if `timestamps` is enabled in schema)              |
+| `overwrite`           | `Boolean`               | If `true`, completely replaces the document (used with `update`)                               |
+| `returnDocument`      | `"before"` \| `"after"` | Replaces `new: true` (newer syntax)                                                            |
+| `setDefaultsOnInsert` | `Boolean`               | Applies default values when `upsert` is true                                                   |
+| `context`             | `"query"` \| `"update"` | Needed for some validators to work properly                                                    |
+
+
+=====================================================
+db.orders.aggregate([
+  {
+    $lookup: {
+      from: "customers",           // other collection name
+      localField: "customerId",    // field in the current (orders) collection
+      foreignField: "_id",         // field in the customers collection
+      as: "customerDetails"        // output array field
+    }
+  }
+]);
+
+
+
+
+
+
+
+
+
+
+
