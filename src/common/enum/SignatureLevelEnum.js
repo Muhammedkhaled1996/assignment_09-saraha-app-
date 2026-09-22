@@ -1,4 +1,4 @@
 export const SignatureLevelEnum = {
-  System: 0,
-  Bearer: 1,
+  User: 0,
+  Admin: 1,
 };

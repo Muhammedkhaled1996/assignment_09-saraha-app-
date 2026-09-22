@@ -1,20 +1,25 @@
-import { create, findOne } from "../../common/repository/index.js";
+import mongoose from "mongoose";
+import { create, find, findOne } from "../../common/repository/index.js";
 import {
   compared,
-  decryption,
+  createLoginCredentials,
   encryption,
   hashed,
 } from "../../common/security/index.js";
-import { UserModel } from "./../../DB/module/user.model.js";
+import { UserModel, UserPrivilege } from "./../../DB/module/user.model.js";
 import {
   ConflictException,
   NotFoundException,
 } from "./../../common/exceptions/index.js";
 
-export const signup = async ({ email, password, userName, phone }) => {
+export const signup = async (
+  { email, password, userName, phone, privileges = [] },
+  issuer,
+) => {
   const userExists = await findOne({
     model: UserModel,
     filter: { email },
+    populate: [{ path: "privileges", select: "code" }],
   });
   if (userExists) {
     throw ConflictException({
@@ -29,33 +34,65 @@ export const signup = async ({ email, password, userName, phone }) => {
       password: await hashed({ plainText: password }),
       userName,
       phone: await encryption(phone),
+      privileges,
     },
-    lean: true,
   });
-  return account;
+
+  const { access_token, refresh_token } = await createLoginCredentials(
+    account[0],
+    issuer,
+  );
+  return { access_token, refresh_token };
 };
 
-export const login = async ({ email, password }) => {
-  let account = await findOne({
+export const login = async ({ email, password }, issuer) => {
+  const user = await findOne({
     model: UserModel,
     filter: { email },
+    populate: [{ path: "privileges", select: "code" }],
   });
-
-  if (!account) {
+  if (!user) {
     throw NotFoundException({
-      message: "Invalid user email",
+      message: "Invalid credantials",
     });
   }
+
+  const ciperPassword = user.password;
+
   const match = await compared({
+    ciperText: ciperPassword,
     plainText: password,
-    ciperText: account.password,
   });
   if (!match) {
     throw NotFoundException({
-      message: "Invalid user password",
+      message: "Invalid credantials",
     });
   }
 
-  account.phone = await decryption(account.phone);
-  return account;
+  const { access_token, refresh_token } = await createLoginCredentials(
+    user,
+    issuer,
+  );
+  return { access_token, refresh_token };
+};
+
+export const privilege = async ({ name, code }) => {
+  const privilegeExists = await findOne({
+    model: UserPrivilege,
+    filter: { name, code },
+  });
+  if (privilegeExists) {
+    throw ConflictException({
+      message: "Privilege Exists",
+    });
+  }
+
+  const privilege = await create({
+    model: UserPrivilege,
+    data: {
+      name,
+      code,
+    },
+  });
+  return privilege;
 };

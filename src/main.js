@@ -13,6 +13,9 @@ import { PORT } from "./config.js";
 const app = express();
 const port = PORT;
 
+
+
+
 bootstrapDB(app, port);
 
 app.use(cors(), express.json());
