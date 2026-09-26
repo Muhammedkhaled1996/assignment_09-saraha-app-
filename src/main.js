@@ -13,9 +13,6 @@ import { PORT } from "./config.js";
 const app = express();
 const port = PORT;
 
-
-
-
 bootstrapDB(app, port);
 
 app.use(cors(), express.json());
@@ -25,8 +22,8 @@ app.get("/", (req, res, next) => {
 });
 
 app.use("/auth", authenticationModule);
-app.use("/users", userModule);
-app.use("/messages", messageModule);
+app.use("/user", userModule);
+app.use("/message", messageModule);
 
 app.use("{/*dummy}", (req, res) =>
   res.status(404).send({ message: "Invalid app router" }),
