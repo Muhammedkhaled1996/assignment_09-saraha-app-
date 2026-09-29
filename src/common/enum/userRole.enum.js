@@ -3,3 +3,8 @@ export const userRole = {
   admin: 7000,
   user: 6000,
 };
+
+export const GenderEnum = {
+  MALE: 0,
+  FEMALE: 1,
+};

@@ -9,19 +9,17 @@ export const authentication = (tokenType = TokenEnum.Access) => {
     const { user, payload } = await decodeToken({ authorization, tokenType });
     req.user = user;
     req.payload = payload;
+
     next();
   };
 };
-
 
 export const authorization = (userRole) => {
   return async (req, res, next) => {
     const user = req.user?.user || req.user;
     const userPrivileges = user?.privileges || [];
 
-    const hasPermission = userPrivileges.some(
-      (pre) => (pre?.code || pre) >= userRole,
-    );
+    const hasPermission = userPrivileges.some((pre) => (pre?.code || pre) >= userRole);
 
     if (!userPrivileges.length || !hasPermission) {
       throw ForbiddenException({ message: "Forbidden: Access Denied" });

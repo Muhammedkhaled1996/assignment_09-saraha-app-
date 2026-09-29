@@ -1,32 +1,53 @@
 import { z } from "zod";
+import { GenderEnum } from "../../common/enum/index.js";
+import { generalValidationFields } from "../../common/validatoin.js";
 
-export const login = z.strictObject({
-  email: z.email(),
-  password: z.string().min(6).max(16),
-});
-
-export const signup = login
-  .safeExtend({
-    userName: z.string(),
-    confirmPassword: z.string().min(6).max(16),
-    phone: z.e164(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.password != data.confirmPassword) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["confirmPassword"],
-        message: "password mismatch confirmPassword",
-      });
-    }
-    if (!data.userName.includes(" ")) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["userName"],
-        message: "userName must includes space between firstName and lastName",
-      });
-    }
+export const loginSchema = (lang) => {
+  return z.strictObject({
+    email: generalValidationFields.email(lang),
+    password: generalValidationFields.password(lang),
   });
+};
+
+export const login = (lang) => {
+  return z.object({
+    body: loginSchema(lang),
+    query: z.strictObject({
+      lang: z.enum(["ar", "en"]).default("ar"),
+    }),
+  });
+};
+
+export const signup = (lang) => {
+  return z.object({
+    body: loginSchema(lang)
+      .safeExtend({
+        userName: generalValidationFields.userName(lang),
+        confirmPassword: generalValidationFields.confirmPassword(lang),
+        phone: generalValidationFields.phone(lang),
+        gender: generalValidationFields.gender(lang),
+        privileges: generalValidationFields.privileges(lang).optional(),
+      })
+      .superRefine((data, ctx) => {
+        generalValidationFields.matchFields({ original: "password", copy: "confirmPassword", data, ctx, lang });
+        if (!data.userName.includes(" ")) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["userName"],
+            message: "userName must includes space between firstName and lastName",
+          });
+        }
+      }),
+  });
+};
+
+export const logoutSchema = (lang) => {
+  return z.object({
+    body: z.strictObject({
+      action: generalValidationFields.action(lang),
+    }),
+  });
+};
 
 //   .refine(
 //     (data) => {

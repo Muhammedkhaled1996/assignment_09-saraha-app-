@@ -4,17 +4,19 @@ import {
   ConflictException,
   NotFoundException,
 } from "../../common/exceptions/errors.exceptions.js";
+import { create, createOne, findOne } from "../../common/repository/db.repository.js";
 import {
-  create,
-  createOne,
-  findOne,
-} from "../../common/repository/db.repository.js";
-import { createLoginCredentials } from "../../common/security/token.security.js";
-import { ACCESS_TOKEN_EXPIRES_IN, WEB_CLIENT_IDS } from "../../config.js";
+  createLoginCredentials,
+  createRevokeToken,
+  userBaseRevokeTokenKey,
+  userRevokeTokenKey,
+} from "../../common/security/index.js";
+import { ACCESS_TOKEN_EXPIRES_IN, REFRESH_TOKEN_EXPIRES_IN, WEB_CLIENT_IDS } from "../../config.js";
 import { UserModel, UserPrivilege } from "../../DB/module/user.model.js";
 import { OAuth2Client } from "google-auth-library";
-import { compared, hashed } from "./../../common/security/hash.security.js";
-import { encryption } from "../../common/security/encryption.security.js";
+import { compared, hashed, encryption } from "./../../common/security/index.js";
+import { del, keys, set } from "../../common/services/index.js";
+import { LogoutEnum } from "../../common/enum/index.js";
 
 const client = new OAuth2Client();
 
@@ -27,10 +29,9 @@ async function verifyGoogleAccount(idToken) {
   return payload;
 }
 
-export const signup = async (
-  { email, password, confirmPassword, userName, phone, privileges = [] },
-  issuer,
-) => {
+export const signup = async (inputs, issuer) => {
+  const { email, password, confirmPassword, userName, gender, phone, privileges = [] } = inputs.body;
+
   const userExists = await findOne({
     model: UserModel,
     filter: { email },
@@ -54,14 +55,12 @@ export const signup = async (
     },
   });
 
-  const { access_token, refresh_token } = await createLoginCredentials(
-    account[0],
-    issuer,
-  );
+  const { access_token, refresh_token } = await createLoginCredentials(account[0], issuer);
   return { access_token, refresh_token };
 };
 
-export const login = async ({ email, password }, issuer) => {
+export const login = async (inputs, issuer) => {
+  const { email, password } = inputs.body;
   const user = await findOne({
     model: UserModel,
     filter: { email, provider: providerEnum.SYSTEM },
@@ -79,16 +78,14 @@ export const login = async ({ email, password }, issuer) => {
     ciperText: ciperPassword,
     plainText: password,
   });
+
   if (!match) {
     throw NotFoundException({
       message: "Invalid credantials",
     });
   }
 
-  const { access_token, refresh_token } = await createLoginCredentials(
-    user,
-    issuer,
-  );
+  const { access_token, refresh_token } = await createLoginCredentials(user, issuer);
   return { access_token, refresh_token };
 };
 
@@ -119,19 +116,17 @@ export const rotateToken = async (payload, user) => {
 
   if (currentTime < accessExpiresIn) {
     throw ConflictException({
-      message:
-        "Sorry we cannot create new login credentials while current access token still within valid time range",
+      message: "Sorry we cannot create new login credentials while current access token still within valid time range",
     });
   }
 
   const { access_token, refresh_token } = await createLoginCredentials(user);
-
+  await createRevokeToken({ payload });
   return { access_token, refresh_token };
 };
 
 export const siginUpWithGmail = async ({ idToken }, issuer) => {
-  const { name, email, picture, email_verified } =
-    await verifyGoogleAccount(idToken);
+  const { name, email, picture, email_verified } = await verifyGoogleAccount(idToken);
 
   if (!email_verified) {
     throw BadRequestException({ message: "Email not verified" });
@@ -161,4 +156,29 @@ export const siginUpWithGmail = async ({ idToken }, issuer) => {
   });
 
   return { status: 201, data: await createLoginCredentials(user, issuer) };
+};
+
+export const logout = async (payload, user, inputs) => {
+  const { action } = inputs.body;
+
+  switch (action) {
+    case LogoutEnum.ALL:
+      user.changeCredentialsTime = new Date();
+      await user.save();
+      const keysCount = await keys({ prefix: userBaseRevokeTokenKey({ userId: payload.sub }) });
+
+      console.log({ keysCount });
+
+      if (keysCount && keysCount.length > 0) {
+        await del({ key: keysCount });
+      }
+
+      break;
+
+    default:
+      await createRevokeToken({ payload });
+      break;
+  }
+
+  return;
 };

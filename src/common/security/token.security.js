@@ -10,15 +10,33 @@ import {
   REFRESH_TOKEN_EXPIRES_IN,
   REFRESH_USER_TOKEN_SIGNATURE,
 } from "./../../config.js";
-import {
-  BadRequestException,
-  NotFoundException,
-  UnauthorizedException,
-} from "../exceptions/errors.exceptions.js";
-import { decryption } from "./encryption.security.js";
+import { BadRequestException, NotFoundException, UnauthorizedException } from "../exceptions/errors.exceptions.js";
 import { UserModel } from "../../DB/module/user.model.js";
+import { exists, keys, set } from "../services/index.js";
+import { decryption } from "./encryption.security.js";
 
-// import { get, revokeTokenKey, set } from "../services/index.js";
+export const userBaseRevokeTokenKey = ({ userId }) => {
+  return `User::${userId.toString()}::Revoke_Token`;
+};
+
+export const userRevokeTokenKey = ({ userId, jti }) => {
+  return `${userBaseRevokeTokenKey({ userId })}::${jti}`;
+};
+
+export const createRevokeToken = async ({ payload }) => {
+  const currentTime = Math.floor(Date.now() / 1000);
+
+  const expiryTime = payload.iat + Number(REFRESH_TOKEN_EXPIRES_IN);
+  const ttl = expiryTime - currentTime;
+
+  if (ttl <= 0) return;
+
+  await set({
+    key: userRevokeTokenKey({ userId: payload.sub, jti: payload.jti }),
+    value: payload.jti,
+    ttl: Math.ceil(ttl),
+  });
+};
 
 export const privileges = (user) => {
   return user?.privileges?.map((pre) => pre?.code) || [];
@@ -32,10 +50,7 @@ export const generateToken = async ({
   return jwt.sign(payload, secret, options);
 };
 
-export const verifyToken = async ({
-  token,
-  secret = ACCESS_USER_TOKEN_SIGNATURE,
-} = {}) => {
+export const verifyToken = async ({ token, secret = ACCESS_USER_TOKEN_SIGNATURE } = {}) => {
   return jwt.verify(token, secret);
 };
 
@@ -50,10 +65,7 @@ export const getSignatures = async (levelOrKey = SignatureLevelEnum.User) => {
   };
 
   const isAdmin =
-    levelOrKey === true ||
-    levelOrKey === SignatureLevelEnum.Admin ||
-    levelOrKey === "Admin" ||
-    levelOrKey === "System";
+    levelOrKey === true || levelOrKey === SignatureLevelEnum.Admin || levelOrKey === "Admin" || levelOrKey === "System";
 
   if (isAdmin) {
     signatures.access_signature = ACCESS_SYSTEM_TOKEN_SIGNATURE;
@@ -67,9 +79,7 @@ export const getSignatures = async (levelOrKey = SignatureLevelEnum.User) => {
 };
 
 export const createLoginCredentials = async (user, issuer = "SarahaApp") => {
-  const signatureLevel = await detectSignatureLevel(
-    privileges(user)?.some((code) => code >= 8000),
-  );
+  const signatureLevel = await detectSignatureLevel(privileges(user)?.some((code) => code >= 8000));
 
   const signatures = await getSignatures(signatureLevel);
 
@@ -100,11 +110,7 @@ export const createLoginCredentials = async (user, issuer = "SarahaApp") => {
   return { access_token, refresh_token };
 };
 
-export const decodeToken = async ({
-  model = UserModel,
-  authorization,
-  tokenType = TokenEnum.Access,
-} = {}) => {
+export const decodeToken = async ({ model = UserModel, authorization, tokenType = TokenEnum.Access } = {}) => {
   if (!authorization) {
     throw UnauthorizedException({
       message: "Authorization header is missing",
@@ -112,7 +118,7 @@ export const decodeToken = async ({
   }
   const [bearerKey, token] = authorization.split(" ");
   if (!bearerKey || !token) {
-    return UnauthorizedException({
+    throw UnauthorizedException({
       message: "missing token parts",
     });
   }
@@ -123,23 +129,18 @@ export const decodeToken = async ({
 
   const payload = await verifyToken({
     token,
-    secret:
-      tokenType === TokenEnum.Refresh
-        ? signatures.refresh_signature
-        : signatures.access_signature,
+    secret: tokenType === TokenEnum.Refresh ? signatures.refresh_signature : signatures.access_signature,
   });
 
   if (!payload?.sub || !payload?.iat) {
-    return BadRequestException({
+    throw BadRequestException({
       message: "invalid token payload",
     });
   }
 
-  // if (payload.jti && (await get(revokeTokenKey(payload._id, payload.jti)))) {
-  //   return UnauthorizedException({
-  //     message: "invalid or old login credentials kindly login again",
-  //   });
-  // }
+  if (await exists({ key: userRevokeTokenKey({ userId: payload?.sub, jti: payload?.jti }) })) {
+    throw UnauthorizedException();
+  }
 
   const user = await findOne({
     model,
@@ -147,29 +148,20 @@ export const decodeToken = async ({
     options: {},
     populate: [{ path: "privileges", select: "code" }],
   });
+
   if (!user) {
-    return NotFoundException({
+    throw NotFoundException({
       message: "Not registered account",
     });
   }
 
   if ((user.changeCredentialsTime?.getTime() || 0) > payload.iat * 1000) {
-    return NotFoundException({
-      message: "Not registered account",
-    });
+    throw UnauthorizedException();
   }
 
-  user.phone = await decryption(user.phone);
+  if (user.phone && user.phone.includes("::")) {
+    user.phone = await decryption(user.phone);
+  }
 
   return { user, payload };
 };
-
-/*
-export const createRevokeToken = async (decoded) => {
-  await set(
-    revokeTokenKey(decoded._id, decoded.jti),
-    decoded.jti,
-    decoded.iat + Number(REFRESH_TOKEN_EXPIRES_IN),
-  );
-};
- */

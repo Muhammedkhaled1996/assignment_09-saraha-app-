@@ -1,8 +1,16 @@
+import { LanguageEnum } from "../common/enum/index.js";
 import { BadRequestException } from "../common/exceptions/errors.exceptions.js";
 
 export const validation = (schema) => {
   return (req, res, next) => {
-    const validationResult = schema.safeParse(req.body);
+    const lang = Number(req.headers["accept-language"] ?? LanguageEnum.EN);
+
+    const validationResult = schema(lang).safeParse({
+      body: req.body,
+      query: req.query,
+      params: req.params,
+      headers: req.headers,
+    });
 
     if (!validationResult.success) {
       throw BadRequestException({
@@ -12,6 +20,7 @@ export const validation = (schema) => {
     }
 
     req.validate = validationResult.data;
+
     next();
   };
 };
