@@ -43,6 +43,6 @@ export const expire = async ({ key, ttl }) => {
   return client.expire(key, ttl);
 };
 
-export const increment = async ({ key, count = 1 }) => {
+export const incrementBy = async ({ key, count = 1 }) => {
   return client.incrBy(key, count);
 };

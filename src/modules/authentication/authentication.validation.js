@@ -55,3 +55,20 @@ export const logoutSchema = (lang) => {
 //     },
 //     { message: "password mismatch confirmPassword", path: ["confirmPassword"] },
 //   );
+
+export const confirmEmail = (lang) => {
+  return z.object({
+    body: z.strictObject({
+      email: generalValidationFields.email(lang),
+      otp: generalValidationFields.otp(lang),
+    }),
+  });
+};
+
+export const resendOtp = (lang) => {
+  return z.object({
+    body: z.strictObject({
+      email: generalValidationFields.email(lang),
+    }),
+  });
+};

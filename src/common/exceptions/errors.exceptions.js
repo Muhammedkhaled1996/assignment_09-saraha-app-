@@ -48,3 +48,11 @@ export const ForbiddenException = ({
 } = {}) => {
   return ErrorResponse({ message, status: 403, extra });
 };
+
+// 429 Too Many Requests وتستخدم عندما يقوم المستخدم بإرسال عدد كبير جدًا من الطلبات في فترة زمنية قصيرة، مما يؤدي إلى حظر مؤقت.
+export const TooManyRequertException = ({
+  message = "Too Many Request Exception",
+  extra = undefined,
+} = {}) => {
+  return ErrorResponse({ message, status: 429, extra });
+};

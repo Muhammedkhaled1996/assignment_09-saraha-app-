@@ -1,11 +1,13 @@
 import dns from "node:dns";
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
+import { resolve } from "node:path";
 import express from "express";
 import cors from "cors";
 import { globalErrorHandling } from "./middleware/error.middleware.js";
 import { userModule, messageModule, authenticationModule } from "./modules/index.js";
 import { bootstrapDB } from "./DB/connections.js";
 import { PORT } from "./config.js";
+import { sendEmail } from "./common/utils/index.js";
 const app = express();
 const port = PORT;
 

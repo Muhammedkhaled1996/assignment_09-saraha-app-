@@ -48,6 +48,13 @@ export const generalValidationFields = {
         /^(\+201|01|00201)[0-2,5]{1}[0-9]{8}/,
         lang == LanguageEnum.AR ? "يجب إدخال رقم مصرى فقط" : "Invalid egyption phone number",
       ),
+  otp: (lang) =>
+    z
+      .string()
+      .regex(
+        /^\d{6}$/,
+        lang == LanguageEnum.AR ? "يجب أدخال عدد 6 أرقام فقط" : "OTP should contain 6 numbers only",
+      ),
   gender: (lang) =>
     z.enum(GenderEnum, {
       message: lang == LanguageEnum.AR ? "المسموح بدخالة 0 للذكر و 1 للانثى" : "only valid 0 for male and 1 for female",

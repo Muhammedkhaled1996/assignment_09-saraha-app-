@@ -15,8 +15,12 @@ import { UserModel } from "../../DB/module/user.model.js";
 import { exists, keys, set } from "../services/index.js";
 import { decryption } from "./encryption.security.js";
 
+export const userBaseKey = ({ userId }) => {
+  return `User::${userId.toString()}`;
+};
+
 export const userBaseRevokeTokenKey = ({ userId }) => {
-  return `User::${userId.toString()}::Revoke_Token`;
+  return `${userBaseKey({ userId })}::Revoke_Token`;
 };
 
 export const userRevokeTokenKey = ({ userId, jti }) => {

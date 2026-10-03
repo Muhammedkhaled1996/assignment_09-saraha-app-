@@ -1,8 +1,9 @@
-import { providerEnum } from "../../common/enum/porvider.enum.js";
+import { providerEnum } from "../../common/enum/provider.enum.js";
 import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  TooManyRequertException,
 } from "../../common/exceptions/errors.exceptions.js";
 import { create, createOne, findOne } from "../../common/repository/db.repository.js";
 import {
@@ -15,11 +16,98 @@ import { ACCESS_TOKEN_EXPIRES_IN, REFRESH_TOKEN_EXPIRES_IN, WEB_CLIENT_IDS } fro
 import { UserModel, UserPrivilege } from "../../DB/module/user.model.js";
 import { OAuth2Client } from "google-auth-library";
 import { compared, hashed, encryption } from "./../../common/security/index.js";
-import { del, keys, set } from "../../common/services/index.js";
-import { LogoutEnum } from "../../common/enum/index.js";
+import { del, keys, set, get, ttl, incrementBy, expire } from "../../common/services/index.js";
+import { EmailSubjectEnum, LogoutEnum } from "../../common/enum/index.js";
+import {
+  createOTP,
+  sendEmail,
+  UserEmailKey,
+  UserEmailTrailsKey,
+  UserLoginTrailsKey,
+} from "../../common/utils/index.js";
+import { emailEvent } from "../../common/utils/email/email.event.js";
 
 const client = new OAuth2Client();
 
+// send email otp function
+const sendEmailOtp = async ({ account, subject, expiresIn = 120, maxTrails = 3, blockInSeconds = 300 }) => {
+  const email = account?.email;
+  const existOtpTtl = await ttl({ key: UserEmailKey({ email, subject }) });
+
+  if (existOtpTtl > 0) {
+    throw BadRequestException({
+      message: `Sorry we cannot create new otp while existing one still try again later after ${existOtpTtl}s`,
+    });
+  }
+
+  const oldTrails = (await get({ key: UserEmailTrailsKey({ email, subject }) })) ?? 0;
+
+  if (oldTrails >= maxTrails) {
+    throw TooManyRequertException({ message: "Max otp trails has been reached" });
+  }
+
+  const code = createOTP();
+
+  await set({
+    key: UserEmailKey({ email, subject }),
+    value: await hashed({ plainText: code.toString() }),
+    ttl: expiresIn,
+  });
+
+  const currentTrails = await incrementBy({ key: UserEmailTrailsKey({ email, subject }), count: 1 });
+
+  if (currentTrails == 3) {
+    await expire({ key: UserEmailTrailsKey({ email, subject }), ttl: blockInSeconds });
+  }
+
+  emailEvent.emit("sendEmail", {
+    recipients: { to: email },
+    subject,
+    data: { code, userName: account.userName },
+  });
+};
+
+// login attempt functions
+export const checkLoginBlocked = async ({ email, subject = "LOGIN" }) => {
+  const key = UserLoginTrailsKey({ email, subject });
+  const attempts = await get({ key });
+  const ttlLeft = await ttl({ key });
+
+  if (attempts && Number(attempts) >= 3 && ttlLeft > 0) {
+    throw new TooManyRequestsException({
+      message: `Too many failed attempts. Try again in ${ttlLeft} seconds.`,
+    });
+  }
+};
+
+export const recordFailedAttempt = async ({
+  email,
+  subject = "LOGIN",
+  maxTrails = 3,
+  blockInSeconds = 300,
+  windowInSeconds = 60,
+}) => {
+  const key = UserLoginTrailsKey({ email, subject });
+
+  const currentAttempts = await incrementBy({ key, count: 1 });
+
+  if (currentAttempts === 1) {
+    await expire({ key, ttl: windowInSeconds });
+  }
+
+  if (currentAttempts >= maxTrails) {
+    await expire({ key, ttl: blockInSeconds });
+    throw new TooManyRequestsException({
+      message: `Account temporarily locked due to too many failed attempts. Try again in ${blockInSeconds}s.`,
+    });
+  }
+};
+
+export const resetLoginAttempts = async ({ email, subject = "LOGIN" }) => {
+  await del({ key: UserLoginTrailsKey({ email, subject }) });
+};
+
+// verify Google account function
 async function verifyGoogleAccount(idToken) {
   const ticket = await client.verifyIdToken({
     idToken,
@@ -29,6 +117,7 @@ async function verifyGoogleAccount(idToken) {
   return payload;
 }
 
+// signup function
 export const signup = async (inputs, issuer) => {
   const { email, password, confirmPassword, userName, gender, phone, privileges = [] } = inputs.body;
 
@@ -56,39 +145,95 @@ export const signup = async (inputs, issuer) => {
   });
 
   const { access_token, refresh_token } = await createLoginCredentials(account[0], issuer);
+
+  // Send confirm email with otp
+  await sendEmailOtp({ account: account[0], subject: EmailSubjectEnum.CONFIRM_EMAIL });
+
   return { access_token, refresh_token };
 };
 
+// resend email otp function
+export const resendEmail = async (inputs) => {
+  const { email } = inputs.body;
+  const account = await findOne({
+    model: UserModel,
+    filter: { email, provider: providerEnum.SYSTEM, confirmEmail: { $exists: false } },
+  });
+
+  if (!account) {
+    throw NotFoundException({ message: "Invalid email" });
+  }
+
+  // Send confirm email with otp
+  await sendEmailOtp({ account, subject: EmailSubjectEnum.CONFIRM_EMAIL });
+
+  return;
+};
+
+// confirm email function
+export const confirmEmail = async (inputs) => {
+  const { email, otp } = inputs.body;
+  const account = await findOne({
+    model: UserModel,
+    filter: { email, provider: providerEnum.SYSTEM, confirmEmail: { $exists: false } },
+  });
+
+  if (!account) {
+    throw NotFoundException({ message: "Invalid email" });
+  }
+
+  const userKey = UserEmailKey({ email, subject: EmailSubjectEnum.CONFIRM_EMAIL });
+
+  const hashOtp = await get({ key: userKey });
+  if (!hashOtp || !(await compared({ ciperText: hashOtp, plainText: otp.toString() }))) {
+    throw ConflictException({ message: "Invalid otp" });
+  }
+  account.confirmEmail = new Date();
+  await account.save();
+  await del({ key: await keys({ prefix: userKey }) });
+  return;
+};
+
+// login function
 export const login = async (inputs, issuer) => {
   const { email, password } = inputs.body;
+
+  await checkLoginBlocked({ email, subject: "LOGIN" });
+
   const user = await findOne({
     model: UserModel,
-    filter: { email, provider: providerEnum.SYSTEM },
+    filter: { email, provider: providerEnum.SYSTEM, confirmEmail: { $exists: true } },
     populate: [{ path: "privileges", select: "code" }],
   });
+
   if (!user) {
-    throw NotFoundException({
-      message: "Invalid credantials",
+    await recordFailedAttempt({ email, subject: "LOGIN" });
+    throw new NotFoundException({
+      message: "Invalid credentials",
     });
   }
 
-  const ciperPassword = user.password;
+  const cipherPassword = user.password;
 
   const match = await compared({
-    ciperText: ciperPassword,
+    ciperText: cipherPassword,
     plainText: password,
   });
 
   if (!match) {
-    throw NotFoundException({
-      message: "Invalid credantials",
+    await recordFailedAttempt({ email, subject: "LOGIN" });
+    throw new NotFoundException({
+      message: "Invalid credentials",
     });
   }
+
+  await resetLoginAttempts({ email, subject: "LOGIN" });
 
   const { access_token, refresh_token } = await createLoginCredentials(user, issuer);
   return { access_token, refresh_token };
 };
 
+// privilege creation function
 export const privilege = async ({ name, code }) => {
   const privilegeExists = await findOne({
     model: UserPrivilege,
@@ -110,6 +255,7 @@ export const privilege = async ({ name, code }) => {
   return privilege;
 };
 
+// rotate token function
 export const rotateToken = async (payload, user) => {
   const accessExpiresIn = (payload.iat + ACCESS_TOKEN_EXPIRES_IN) * 1000;
   const currentTime = Date.now() + 5 * 60000;
@@ -125,6 +271,7 @@ export const rotateToken = async (payload, user) => {
   return { access_token, refresh_token };
 };
 
+// signup with Gmail function
 export const siginUpWithGmail = async ({ idToken }, issuer) => {
   const { name, email, picture, email_verified } = await verifyGoogleAccount(idToken);
 
@@ -158,6 +305,7 @@ export const siginUpWithGmail = async ({ idToken }, issuer) => {
   return { status: 201, data: await createLoginCredentials(user, issuer) };
 };
 
+// logout function
 export const logout = async (payload, user, inputs) => {
   const { action } = inputs.body;
 

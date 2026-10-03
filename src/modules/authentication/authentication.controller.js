@@ -1,6 +1,15 @@
 import { Router } from "express";
 import { successResponce } from "./../../common/utils/success.responce.js";
-import { signup, login, privilege, rotateToken, siginUpWithGmail, logout } from "./authentication.services.js";
+import {
+  signup,
+  login,
+  privilege,
+  rotateToken,
+  siginUpWithGmail,
+  logout,
+  confirmEmail,
+  resendEmail,
+} from "./authentication.services.js";
 import { TokenEnum } from "../../common/enum/TokenEnum.js";
 import { authentication, authorization } from "./../../middleware/authentication.middleware.js";
 import { userRole } from "../../common/enum/userRole.enum.js";
@@ -15,9 +24,20 @@ router.post("/signup", validation(validators.signup), async (req, res, next) => 
   return successResponce({ res, data, status: 201 });
 });
 
+// confirm email
+router.patch("/confirm-email", validation(validators.confirmEmail), async (req, res, next) => {
+  const data = await confirmEmail(req.validate);
+  return successResponce({ res, data });
+});
+
+// resend otp email
+router.patch("/resend-otp", validation(validators.resendOtp), async (req, res, next) => {
+  const data = await resendEmail(req.validate);
+  return successResponce({ res, data });
+});
+
 // login with system
 router.post("/login", validation(validators.login), async (req, res, next) => {
-  
   const data = await login(req.validate, `${req.protocol}://${req.host}`);
   return successResponce({ res, data });
 });
@@ -42,7 +62,6 @@ router.post("/sigup-with-gmail", async (req, res, next) => {
 
 // logout
 router.post("/logout", validation(validators.logoutSchema), authentication(), async (req, res, next) => {
- 
   const data = await logout(req.payload, req.user, req.validate);
   return successResponce({ res, data });
 });
