@@ -15,6 +15,8 @@ await bootstrapDB(app, port);
 
 app.use(cors(), express.json());
 
+app.use("/assets", express.static("./assets"));
+
 app.get("/", (req, res, next) => {
   res.send({ message: "Welcome to saraha app" });
 });
