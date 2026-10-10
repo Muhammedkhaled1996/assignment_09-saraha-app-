@@ -9,6 +9,9 @@ import {
   logout,
   confirmEmail,
   resendEmail,
+  requestForgetPasswordCode,
+  verifyForgotPasswordCode,
+  resetPasswordCode,
 } from "./authentication.services.js";
 import { TokenEnum } from "../../common/enum/TokenEnum.js";
 import { authentication, authorization } from "./../../middleware/authentication.middleware.js";
@@ -63,6 +66,24 @@ router.post("/sigup-with-gmail", async (req, res, next) => {
 // logout
 router.post("/logout", validation(validators.logoutSchema), authentication(), async (req, res, next) => {
   const data = await logout(req.payload, req.user, req.validate);
+  return successResponce({ res, data });
+});
+
+// forget password
+router.post("/requset-forgot-password-code", validation(validators.resendOtp), async (req, res, next) => {
+  const data = await requestForgetPasswordCode(req.validate);
+  return successResponce({ res, data, status: 201 });
+});
+
+// verify forgot password
+router.patch("/verify-forgot-password", validation(validators.confirmEmail), async (req, res, next) => {
+  const data = await verifyForgotPasswordCode(req.validate);
+  return successResponce({ res, data });
+});
+
+// reset password
+router.patch("/reset-password", validation(validators.resetPassword), async (req, res, next) => {
+  const data = await resetPasswordCode(req.validate);
   return successResponce({ res, data });
 });
 

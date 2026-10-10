@@ -72,3 +72,18 @@ export const resendOtp = (lang) => {
     }),
   });
 };
+
+export const resetPassword = (lang) => {
+  return z.object({
+    body: z
+      .strictObject({
+        email: generalValidationFields.email(lang),
+        otp: generalValidationFields.otp(lang),
+        password: generalValidationFields.password(lang),
+        confirmPassword: generalValidationFields.confirmPassword(lang),
+      })
+      .superRefine((data, ctx) => {
+        generalValidationFields.matchFields({ original: "password", copy: "confirmPassword", data, ctx, lang });
+      }),
+  });
+};

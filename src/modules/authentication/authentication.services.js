@@ -144,12 +144,13 @@ export const signup = async (inputs, issuer) => {
     },
   });
 
-  const { access_token, refresh_token } = await createLoginCredentials(account[0], issuer);
+  // const { access_token, refresh_token } = await createLoginCredentials(account[0], issuer);
 
   // Send confirm email with otp
   await sendEmailOtp({ account: account[0], subject: EmailSubjectEnum.CONFIRM_EMAIL });
 
-  return { access_token, refresh_token };
+  // return { access_token, refresh_token };
+  return { message: "Account created successfully. Please check your email for confirmation." };
 };
 
 // resend email otp function
@@ -222,7 +223,7 @@ export const login = async (inputs, issuer) => {
 
   if (!match) {
     await recordFailedAttempt({ email, subject: "LOGIN" });
-    throw new NotFoundException({
+    throw NotFoundException({
       message: "Invalid credentials",
     });
   }
@@ -315,8 +316,6 @@ export const logout = async (payload, user, inputs) => {
       await user.save();
       const keysCount = await keys({ prefix: userBaseRevokeTokenKey({ userId: payload.sub }) });
 
-      console.log({ keysCount });
-
       if (keysCount && keysCount.length > 0) {
         await del({ key: keysCount });
       }
@@ -329,4 +328,72 @@ export const logout = async (payload, user, inputs) => {
   }
 
   return;
+};
+
+// forget password
+export const requestForgetPasswordCode = async (inputs) => {
+  const { email } = inputs.body;
+
+  const account = await findOne({
+    model: UserModel,
+    filter: { email, provider: providerEnum.SYSTEM, confirmEmail: { $exists: true } },
+    populate: [{ path: "privileges", select: "code" }],
+  });
+
+  if (!account) {
+    throw new NotFoundException({
+      message: "Invalid credentials",
+    });
+  }
+
+  await sendEmailOtp({ account, subject: EmailSubjectEnum.FORGET_PASSWORD });
+
+  return;
+};
+
+// verify forgot password
+export const verifyForgotPasswordCode = async ({ email, otp }) => {
+  const account = await findOne({
+    model: UserModel,
+    filter: { email, provider: providerEnum.SYSTEM, confirmEmail: { $exists: true } },
+  });
+
+  if (!account) {
+    throw NotFoundException({ message: "Invalid email" });
+  }
+
+  const userKey = UserEmailKey({ email, subject: EmailSubjectEnum.FORGET_PASSWORD });
+
+  const hashOtp = await get({ key: userKey });
+  if (!hashOtp || !(await compared({ ciperText: hashOtp, plainText: otp.toString() }))) {
+    throw ConflictException({ message: "Invalid otp" });
+  }
+  account.confirmEmail = new Date();
+  await account.save();
+  await del({ key: await keys({ prefix: userKey }) });
+  return account;
+};
+
+// verify forgot password
+export const resetPasswordCode = async (inputs) => {
+  console.log({ inputs });
+  const { email, otp, password } = inputs.body;
+  const account = await verifyForgotPasswordCode({ email, otp });
+
+  account.password = await hashed({ plainText: password });
+  account.changeCredentialsTime = new Date();
+
+  await account.save();
+
+  const result = await Promise.all([
+    keys({ prefix: UserEmailKey({ email, subject: EmailSubjectEnum.FORGET_PASSWORD }) }),
+    keys({ prefix: userBaseRevokeTokenKey({ userId: account._id }) }),
+  ]);
+
+  const keysToDelete = [...(result[0] || []), ...(result[1] || [])];
+
+  if (keysToDelete.length > 0) {
+    await del({ key: keysToDelete });
+  } 
+  return account;
 };
